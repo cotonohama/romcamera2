@@ -1,12 +1,11 @@
-ｖ<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ことのは ROMカメラ (関節ナビ版)</title>
+<title>ことのは ROMカメラ 安定版v3</title>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 <style>
     html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; touch-action: none; }
     body { font-family: sans-serif; display: flex; flex-direction: column; }
@@ -14,21 +13,20 @@
     #container { position: relative; flex: 1; width: 100vw; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; }
     video, #captured_image { position: absolute; width: 100%; height: 100%; object-fit: contain; }
     canvas#output_canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; z-index: 5; pointer-events: auto; }
-    #overlay-val { position: absolute; top: 10px; left: 10px; text-shadow: 2px 2px 2px #000; z-index: 10; pointer-events: none; }
-    .main-angle { font-size: 32px; color: #00ff00; font-weight: bold; }
-    #info-panel { background: #222; padding: 10px 10px 25px 10px; border-top: 1px solid #444; z-index: 20; }
-    .btn-group { display: flex; gap: 8px; max-width: 500px; margin: 0 auto; }
-    button { flex: 1; padding: 15px 5px; border-radius: 10px; border: none; font-weight: bold; font-size: 15px; cursor: pointer; color: white; }
+    #overlay-val { position: absolute; top: 10px; left: 10px; text-shadow: 2px 2px 2px #000; z-index: 10; font-size: 32px; color: #00ff00; font-weight: bold; pointer-events: none; }
+    #info-panel { background: #222; padding: 10px 10px 30px 10px; border-top: 1px solid #444; z-index: 20; }
+    .btn-group { display: flex; gap: 10px; max-width: 500px; margin: 0 auto; }
+    button { flex: 1; padding: 18px 5px; border-radius: 12px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; color: white; }
     .btn-blue { background: #2c7be5; } .btn-red { background: #d63031; } .btn-green { background: #27ae60; }
-    #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; }
     #flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 1001; }
 </style>
 </head>
 <body>
 
 <div id="start-overlay">
-    <h2 style="color:white; margin-bottom:20px;">ことのは ROMカメラ</h2>
-    <button class="btn-blue" onclick="initApp()" style="max-width: 250px; padding: 20px;">開始</button>
+    <h2>ことのは ROMカメラ</h2>
+    <button class="btn-blue" onclick="initApp()" style="max-width: 250px; padding: 20px;">カメラを開始する</button>
 </div>
 
 <div id="flash"></div>
@@ -38,7 +36,7 @@
         <option value="environment">背面カメラ</option>
         <option value="user">前面カメラ</option>
     </select>
-    <label class="btn-green" style="padding: 8px 12px; border-radius: 5px; font-size: 13px; cursor: pointer;">
+    <label class="btn-green" style="padding: 8px 12px; border-radius: 5px; font-size: 14px; cursor: pointer;">
         📂 写真読込
         <input type="file" accept="image/*" onchange="loadLocalImage(event)" style="display:none;">
     </label>
@@ -48,15 +46,11 @@
     <video id="input_video" playsinline muted></video>
     <img id="captured_image" style="display:none;">
     <canvas id="output_canvas"></canvas>
-    <div id="overlay-val">
-        <div class="main-angle"><span id="manual-angle">--</span>°</div>
-    </div>
+    <div id="overlay-val"><span id="manual-angle">--</span>°</div>
 </div>
 
 <div id="info-panel">
-    <div style="font-size: 14px; margin-bottom: 8px; color: #f1c40f; font-weight: bold; min-height: 1.2em;">
-        <span id="guide-msg">読み込み中...</span>
-    </div>
+    <div id="guide-msg" style="font-size: 14px; margin-bottom: 10px; color: #f1c40f; font-weight: bold;">準備中...</div>
     <div class="btn-group">
         <button class="btn-blue" onclick="takePhoto()">📸 撮影</button>
         <button class="btn-red" onclick="resetManual()">🔄 リセット</button>
@@ -73,27 +67,17 @@ const guideMsg = document.getElementById('guide-msg');
 const flash = document.getElementById('flash');
 
 let manualPoints = [];
-let trackedIndices = [];
 let cameraObj = null;
 let currentFacingMode = "environment";
 let isImageMode = false;
-let currentPoseResults = null;
 let lastClickTime = 0;
 
-const GUIDES = [
-    "①【股関節 / 肩】をタップしてください",
-    "②【膝 / 肘（関節の中心）】をタップしてください",
-    "③【足首 / 手首】をタップしてください",
-    "計測完了！リセットで次の計測へ"
-];
-
-const LABELS = ["股関節/肩", "膝/肘", "足首/手首"];
+const LABELS = ["①股関節/肩", "②膝/肘", "③足首/手首"];
 
 async function initApp() {
     document.getElementById('start-overlay').style.display = 'none';
-    startVoice();
     startCamera(currentFacingMode);
-    guideMsg.innerText = GUIDES[0];
+    startVoice();
 }
 
 function startCamera(mode) {
@@ -102,10 +86,17 @@ function startCamera(mode) {
     imageElement.style.display = "none";
     if(cameraObj) { cameraObj.stop(); }
     cameraObj = new Camera(videoElement, {
-        onFrame: async () => { if(!isImageMode) await pose.send({image: videoElement}); },
+        onFrame: async () => { 
+            if(!isImageMode) {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+                drawAll(); 
+            }
+        },
         width: 1280, height: 720, facingMode: mode
     });
     cameraObj.start();
+    resetManual();
 }
 
 function switchCamera(mode) { currentFacingMode = mode; startCamera(mode); }
@@ -120,11 +111,10 @@ function loadLocalImage(event) {
         imageElement.src = e.target.result;
         imageElement.style.display = "block";
         videoElement.style.display = "none";
-        imageElement.onload = async () => {
+        imageElement.onload = () => {
             canvasElement.width = imageElement.naturalWidth;
             canvasElement.height = imageElement.naturalHeight;
             resetManual();
-            await pose.send({image: imageElement});
         };
     };
     reader.readAsDataURL(file);
@@ -135,8 +125,8 @@ function takePhoto() {
     setTimeout(() => { flash.style.opacity = "0"; }, 100);
     const tempCanvas = document.createElement('canvas');
     const source = isImageMode ? imageElement : videoElement;
-    tempCanvas.width = source.videoWidth || source.naturalWidth;
-    tempCanvas.height = source.videoHeight || source.naturalHeight;
+    tempCanvas.width = isImageMode ? imageElement.naturalWidth : videoElement.videoWidth;
+    tempCanvas.height = isImageMode ? imageElement.naturalHeight : videoElement.videoHeight;
     const ctx = tempCanvas.getContext('2d');
     ctx.drawImage(source, 0, 0);
     ctx.drawImage(canvasElement, 0, 0);
@@ -160,67 +150,70 @@ function startVoice() {
     }
 }
 
-function calculateAngle(A, B, C) {
-    const BA = { x: A.x - B.x, y: A.y - B.y };
-    const BC = { x: C.x - B.x, y: C.y - B.y };
-    const dot = BA.x * BC.x + BA.y * BC.y;
-    const magBA = Math.sqrt(BA.x * BA.x + BA.y * BA.y);
-    const magBC = Math.sqrt(BC.x * BC.x + BC.y * BC.y);
-    if(magBA === 0 || magBC === 0) return 0;
-    return (Math.acos(dot / (magBA * magBC)) * 180 / Math.PI).toFixed(1);
-}
-
-function getCanvasCoords(e) {
-    const rect = canvasElement.getBoundingClientRect();
-    const scaleX = canvasElement.width / rect.width;
-    const scaleY = canvasElement.height / rect.height;
-    const clientX = (e.clientX !== undefined) ? e.clientX : e.touches[0].clientX;
-    const clientY = (e.clientY !== undefined) ? e.clientY : e.touches[0].clientY;
-    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
-}
-
 canvasElement.addEventListener("click", (e) => {
     const now = Date.now();
-    // ダブルタップ判定
     if (now - lastClickTime < 300) {
-        takePhoto();
-        lastClickTime = 0; // 点を打たないようにリセット
+        takePhoto(); // ダブルタップで撮影
+        lastClickTime = 0;
         return;
     }
     lastClickTime = now;
 
-    // 0.3秒待って、シングルクリックであることを確定させてから点を打つ
     setTimeout(() => {
-        if (lastClickTime === 0) return; // ダブルタップでリセットされてたら中止
-        
-        const coords = getCanvasCoords(e);
+        if (lastClickTime === 0) return;
+        const rect = canvasElement.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (canvasElement.width / rect.width);
+        const y = (e.clientY - rect.top) * (canvasElement.height / rect.height);
+
         if (manualPoints.length < 3) {
-            let nearestIdx = -1; let minDist = 70;
-            if(currentPoseResults?.poseLandmarks) {
-                currentPoseResults.poseLandmarks.forEach((lm, i) => {
-                    const dist = Math.hypot(coords.x - lm.x * canvasElement.width, coords.y - lm.y * canvasElement.height);
-                    if(dist < minDist) { minDist = dist; nearestIdx = i; }
-                });
-            }
-            manualPoints.push(coords);
-            trackedIndices.push(nearestIdx);
-            updateDisplay();
-            drawManual(); 
-            lastClickTime = 0;
+            manualPoints.push({x, y});
+            drawAll();
+            updateAngle();
         }
+        lastClickTime = 0;
     }, 300);
 });
 
-function updateDisplay() {
+function updateAngle() {
     if (manualPoints.length === 3) {
-        manualDisplay.innerText = calculateAngle(manualPoints[0], manualPoints[1], manualPoints[2]);
+        const A = manualPoints[0], B = manualPoints[1], C = manualPoints[2];
+        const BA = { x: A.x - B.x, y: A.y - B.y };
+        const BC = { x: C.x - B.x, y: C.y - B.y };
+        const dot = BA.x * BC.x + BA.y * BC.y;
+        const magBA = Math.sqrt(BA.x * BA.x + BA.y * BA.y);
+        const magBC = Math.sqrt(BC.x * BC.x + BC.y * BC.y);
+        const angle = (Math.acos(dot / (magBA * magBC)) * 180 / Math.PI).toFixed(1);
+        manualDisplay.innerText = angle;
+        guideMsg.innerText = "計測完了！";
+    } else {
+        guideMsg.innerText = LABELS[manualPoints.length] + " をタップ";
     }
-    guideMsg.innerText = GUIDES[manualPoints.length] || GUIDES[3];
 }
 
-function drawManual() {
+function drawAll() {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     manualPoints.forEach((p, i) => {
         canvasCtx.fillStyle = "red";
-        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 18, 0, Math.PI * 2); canvasCtx.fill();
-        canvasCtx
+        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 20, 0, Math.PI * 2); canvasCtx.fill();
+        canvasCtx.strokeStyle = "white"; canvasCtx.lineWidth = 4; canvasCtx.stroke();
+        canvasCtx.fillStyle = "white"; canvasCtx.font = "bold 26px sans-serif";
+        canvasCtx.fillText(LABELS[i].split(" ")[1], p.x + 30, p.y + 10);
+    });
+    if(manualPoints.length >= 2) {
+        canvasCtx.strokeStyle = "red"; canvasCtx.lineWidth = 6;
+        canvasCtx.beginPath(); canvasCtx.moveTo(manualPoints[0].x, manualPoints[0].y);
+        canvasCtx.lineTo(manualPoints[1].x, manualPoints[1].y);
+        if(manualPoints.length === 3) canvasCtx.lineTo(manualPoints[2].x, manualPoints[2].y);
+        canvasCtx.stroke();
+    }
+}
+
+function resetManual() { 
+    manualPoints = []; 
+    manualDisplay.innerText = "--"; 
+    guideMsg.innerText = LABELS[0] + " をタップ";
+    drawAll(); 
+}
+</script>
+</body>
+</html>
