@@ -3,42 +3,49 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ことのは ROMカメラ Pro</title>
+<title>ことのは ROMカメラ 精密版</title>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 <style>
-body{ font-family:sans-serif; text-align:center; background:#222; color:white; margin:0; padding:10px; overflow:hidden; }
+body{ font-family:sans-serif; text-align:center; background:#222; color:white; margin:0; padding:10px; }
 #container{ position:relative; width:100%; max-width:640px; margin:0 auto; touch-action: none; border:2px solid #444; }
 video{ display:block; width:100%; height:auto; border-radius:10px; }
 canvas#output_canvas{ position:absolute; top:0; left:0; width:100%; height:100%; border-radius:10px; }
-#info-panel { display: flex; justify-content: space-between; max-width: 640px; margin: 10px auto; gap: 10px; }
-.display-box { flex: 1; background:#333; padding:10px; border-radius:8px; border:1px solid #555; text-align: left; font-size: 14px; }
+#info-panel { display: flex; flex-wrap: wrap; justify-content: space-between; max-width: 640px; margin: 10px auto; gap: 5px; }
+.display-box { flex: 1; min-width: 140px; background:#333; padding:10px; border-radius:8px; border:1px solid #555; text-align: left; font-size: 13px; }
 #manual-angle { color: #ff7675; font-weight: bold; font-size: 18px; }
-button { padding: 12px; font-size: 16px; border-radius: 8px; border: none; background: #2c7be5; color: white; cursor: pointer; width: 100%; }
-#flash { position: fixed; top:0; left:0; width:100%; height:100%; background:white; opacity:0; pointer-events:none; transition: opacity 0.1s; z-index: 100; }
-.status-badge { font-size: 12px; background: #555; padding: 2px 6px; border-radius: 4px; margin-bottom: 5px; display: inline-block; }
+.btn-group { display: flex; gap: 5px; width: 100%; margin-top: 10px; }
+button { flex:1; padding: 15px 5px; font-size: 14px; border-radius: 8px; border: none; color: white; cursor: pointer; font-weight: bold; }
+.btn-blue { background: #2c7be5; }
+.btn-red { background: #d63031; }
+.btn-green { background: #27ae60; }
+#flash { position: fixed; top:0; left:0; width:100%; height:100%; background:white; opacity:0; pointer-events:none; z-index: 1000; }
+#mic-status { font-size: 11px; color: #aaa; margin-top: 5px; }
 </style>
 </head>
 <body>
 
 <div id="flash"></div>
-<h3>ことのは ROMカメラ</h3>
+<h3 style="margin:5px;">ことのは ROMカメラ</h3>
 
-<div id="container" onclick="takePhoto('画面タップ')">
+<div id="container">
     <video id="input_video" autoplay playsinline></video>
     <canvas id="output_canvas"></canvas>
 </div>
 
 <div id="info-panel">
     <div class="display-box">
-        <span class="status-badge">AI自動計測</span><br>
-        肘: <span id="ai_elbow">--</span>° | 膝: <span id="ai_knee">--</span>°
+        AI: 肘<span id="ai_elbow">--</span>°/膝<span id="ai_knee">--</span>°<br>
+        <span id="stable-msg" style="color:#f1c40f; font-size:11px;">3秒静止で撮影</span>
     </div>
     <div class="display-box">
-        <span class="status-badge">手動 & 保存</span><br>
-        <span id="manual-angle">3点タップ</span><br>
-        <button onclick="event.stopPropagation(); resetManual();">リセット</button>
+        手動: <span id="manual-angle">3点タップ</span><br>
+        <div id="mic-status">音声認識: 準備中...</div>
+    </div>
+    <div class="btn-group">
+        <button class="btn-blue" onclick="takePhoto('手動ボタン')">📸 今すぐ撮影</button>
+        <button class="btn-red" onclick="resetManual()">🔄 リセット</button>
     </div>
 </div>
 
@@ -48,13 +55,16 @@ const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 const aiNodes = { elbow: document.getElementById('ai_elbow'), knee: document.getElementById('ai_knee') };
 const manualDisplay = document.getElementById('manual-angle');
+const micStatus = document.getElementById('mic-status');
+const stableMsg = document.getElementById('stable-msg');
 const flash = document.getElementById('flash');
 
 let manualPoints = [];
-let lastAngles = { elbow: 0, knee: 0 };
-let stableCounter = 0; // 静止検知用
+let lastAngle = 0;
+let stableCounter = 0;
+let isVoiceStarted = false;
 
-// --- 1. 写真撮影機能 ---
+// 1. 写真撮影機能
 function takePhoto(label) {
     flash.style.opacity = "1";
     setTimeout(() => { flash.style.opacity = "0"; }, 100);
@@ -63,34 +73,39 @@ function takePhoto(label) {
     tempCanvas.width = canvasElement.width;
     tempCanvas.height = canvasElement.height;
     const ctx = tempCanvas.getContext('2d');
-    
     ctx.drawImage(videoElement, 0, 0);
     ctx.drawImage(canvasElement, 0, 0);
     
     const link = document.createElement('a');
     link.href = tempCanvas.toDataURL('image/png');
-    link.download = `ROM_${new Date().getTime()}.png`;
+    link.download = `Kotonoha_${new Date().getTime()}.png`;
     link.click();
-    console.log("Saved by: " + label);
+    stableMsg.innerText = "✅ 保存しました(" + label + ")";
+    setTimeout(() => { stableMsg.innerText = "3秒静止で撮影"; }, 2000);
 }
 
-// --- 2. 音声認識 (Galaxy/Android対応) ---
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SpeechRecognition) {
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ja-JP';
-    recognition.continuous = true;
-    recognition.onresult = (event) => {
-        const text = event.results[event.results.length - 1][0].transcript;
-        if (text.includes("シャッター") || text.includes("とって")) {
-            takePhoto('音声操作');
-        }
-    };
-    recognition.start();
-    recognition.onerror = () => { recognition.start(); }; // エラー時自動再起動
+// 2. 音声認識の起動（画面を一度触ると開始）
+function startVoice() {
+    if (isVoiceStarted) return;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.onstart = () => { micStatus.innerText = "🎤 音声認識中...「シャッター」"; isVoiceStarted = true; };
+        recognition.onresult = (event) => {
+            const text = event.results[event.results.length - 1][0].transcript;
+            if (text.includes("シャッター") || text.includes("とって")) takePhoto('音声');
+        };
+        recognition.onerror = () => { recognition.start(); }; 
+        recognition.onend = () => { recognition.start(); };
+        recognition.start();
+    } else {
+        micStatus.innerText = "音声認識非対応";
+    }
 }
 
-// 角度計算
 function calculateAngle(A, B, C) {
     const BA = { x: A.x - B.x, y: A.y - B.y };
     const BC = { x: C.x - B.x, y: C.y - B.y };
@@ -101,8 +116,9 @@ function calculateAngle(A, B, C) {
     return (Math.acos(dot / (magBA * magBC)) * 180 / Math.PI).toFixed(1);
 }
 
-// 手動タップ (3点タップは従来通り、背景タップは写真)
+// 関節タップ（3点タップのみ。写真は撮らない）
 canvasElement.addEventListener("pointerdown", function(e) {
+    startVoice(); // 最初のタップで音声認識を起動
     const rect = canvasElement.getBoundingClientRect();
     const x = (e.clientX - rect.left) * (canvasElement.width / rect.width);
     const y = (e.clientY - rect.top) * (canvasElement.height / rect.height);
@@ -116,7 +132,7 @@ canvasElement.addEventListener("pointerdown", function(e) {
     }
 });
 
-function resetManual() { manualPoints = []; manualDisplay.innerText = "3点タップ"; }
+function resetManual() { manualPoints = []; manualDisplay.innerText = "3点タップ"; stableCounter = 0; }
 
 function onResults(results) {
     canvasElement.width = videoElement.videoWidth;
@@ -126,54 +142,41 @@ function onResults(results) {
 
     if (results.poseLandmarks) {
         drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF0055', lineWidth: 2});
-        drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#00FF00', lineWidth: 1, radius: 3});
+        drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#00FF00', lineWidth: 1, radius: 2});
         
         const lm = results.poseLandmarks;
         const get = (p) => ({ x: p.x * canvasElement.width, y: p.y * canvasElement.height });
         
         try {
-            const currentElbow = calculateAngle(get(lm[12]), get(lm[14]), get(lm[16]));
-            aiNodes.elbow.innerText = currentElbow;
-            
-            // --- 3. 静止検知ロジック (3秒間角度がほぼ変わらなければ撮影) ---
-            if (Math.abs(currentElbow - lastAngles.elbow) < 2.0) { // 変化が2度以内
+            const currentAngle = calculateAngle(get(lm[12]), get(lm[14]), get(lm[16])); // 肘を基準に静止検知
+            aiNodes.elbow.innerText = currentAngle;
+            aiNodes.knee.innerText = calculateAngle(get(lm[24]), get(lm[26]), get(lm[28]));
+
+            // 3秒静止検知（角度の変化が3度以内ならカウント）
+            if (Math.abs(currentAngle - lastAngle) < 3.0) {
                 stableCounter++;
+                if (stableCounter > 10 && stableCounter < 90) {
+                    stableMsg.innerText = "⏳ 静止中... " + Math.floor((90-stableCounter)/30 + 1);
+                }
             } else {
                 stableCounter = 0;
+                stableMsg.innerText = "3秒静止で撮影";
             }
-            lastAngles.elbow = currentElbow;
+            lastAngle = currentAngle;
 
-            if (stableCounter > 90) { // 約3秒 (30fps換算)
+            if (stableCounter >= 90) { // 約3秒
                 takePhoto('静止検知');
-                stableCounter = -100; // 連続撮影防止
+                stableCounter = -150; // しばらく撮影停止
             }
         } catch(e) {}
     }
 
-    // 描画処理
     manualPoints.forEach((p, i) => {
         canvasCtx.fillStyle = "red";
-        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 8, 0, Math.PI * 2); canvasCtx.fill();
+        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 6, 0, Math.PI * 2); canvasCtx.fill();
+        canvasCtx.fillStyle = "white"; canvasCtx.fillText(i+1, p.x-3, p.y+3);
     });
     if(manualPoints.length >= 2) {
-        canvasCtx.strokeStyle = "red"; canvasCtx.lineWidth = 3;
+        canvasCtx.strokeStyle = "red"; canvasCtx.lineWidth = 2;
         canvasCtx.beginPath(); canvasCtx.moveTo(manualPoints[0].x, manualPoints[0].y);
-        canvasCtx.lineTo(manualPoints[1].x, manualPoints[1].y);
-        if(manualPoints.length === 3) canvasCtx.lineTo(manualPoints[2].x, manualPoints[2].y);
-        canvasCtx.stroke();
-    }
-    canvasCtx.restore();
-}
-
-const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
-pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
-pose.onResults(onResults);
-
-const camera = new Camera(videoElement, {
-    onFrame: async () => { await pose.send({image: videoElement}); },
-    width: 640, height: 480, facingMode: "environment"
-});
-camera.start();
-</script>
-</body>
-</html>
+        canvasCtx.lineTo(manualPoints[1].x
