@@ -3,47 +3,94 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI & 手動 ROMカメラ</title>
+<title>ことのは ROMカメラ Pro</title>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 <style>
-body{ font-family:sans-serif; text-align:center; background:#f5f5f5; margin:0; padding:10px; }
-#container{ position:relative; width:100%; max-width:640px; margin:0 auto; touch-action: none; }
-video{ display:block; width:100%; height:auto; border-radius:10px; background:#000; }
-canvas#output_canvas{ position:absolute; top:0; left:0; width:100%; height:100%; border-radius:10px; cursor: crosshair; }
-#info-panel { display: flex; justify-content: space-between; max-width: 640px; margin: 10px auto; }
-.display-box { flex: 1; background:white; padding:10px; border-radius:8px; margin:0 5px; border:1px solid #ddd; text-align: left; font-size: 14px; }
-#manual-angle { color: #d63031; font-weight: bold; font-size: 18px; }
-button { padding: 10px 20px; font-size: 16px; border-radius: 8px; border: none; background: #2c7be5; color: white; cursor: pointer; }
+body{ font-family:sans-serif; text-align:center; background:#222; color:white; margin:0; padding:10px; overflow:hidden; }
+#container{ position:relative; width:100%; max-width:640px; margin:0 auto; touch-action: none; border:2px solid #444; }
+video{ display:block; width:100%; height:auto; border-radius:10px; }
+canvas#output_canvas{ position:absolute; top:0; left:0; width:100%; height:100%; border-radius:10px; }
+#info-panel { display: flex; justify-content: space-between; max-width: 640px; margin: 10px auto; gap: 10px; }
+.display-box { flex: 1; background:#333; padding:10px; border-radius:8px; border:1px solid #555; text-align: left; font-size: 14px; }
+#manual-angle { color: #ff7675; font-weight: bold; font-size: 18px; }
+button { padding: 12px; font-size: 16px; border-radius: 8px; border: none; background: #2c7be5; color: white; cursor: pointer; width: 100%; }
+#flash { position: fixed; top:0; left:0; width:100%; height:100%; background:white; opacity:0; pointer-events:none; transition: opacity 0.1s; z-index: 100; }
+.status-badge { font-size: 12px; background: #555; padding: 2px 6px; border-radius: 4px; margin-bottom: 5px; display: inline-block; }
 </style>
 </head>
 <body>
-<h2>AI & 手動 ROMカメラ</h2>
-<div id="container">
+
+<div id="flash"></div>
+<h3>ことのは ROMカメラ</h3>
+
+<div id="container" onclick="takePhoto('画面タップ')">
     <video id="input_video" autoplay playsinline></video>
     <canvas id="output_canvas"></canvas>
 </div>
+
 <div id="info-panel">
     <div class="display-box">
-        <strong>AI自動計測 (右側):</strong><br>
-        肘: <span id="ai_elbow">--</span>°<br>
-        膝: <span id="ai_knee">--</span>°<br>
-        肩: <span id="ai_shoulder">--</span>°
+        <span class="status-badge">AI自動計測</span><br>
+        肘: <span id="ai_elbow">--</span>° | 膝: <span id="ai_knee">--</span>°
     </div>
     <div class="display-box">
-        <strong>手動タップ計測:</strong><br>
-        <span id="manual-angle">3点タップしてください</span><br>
-        <button onclick="resetManual()">リセット</button>
+        <span class="status-badge">手動 & 保存</span><br>
+        <span id="manual-angle">3点タップ</span><br>
+        <button onclick="event.stopPropagation(); resetManual();">リセット</button>
     </div>
 </div>
+
 <script>
 const videoElement = document.getElementById('input_video');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
-const aiNodes = { elbow: document.getElementById('ai_elbow'), knee: document.getElementById('ai_knee'), shoulder: document.getElementById('ai_shoulder') };
+const aiNodes = { elbow: document.getElementById('ai_elbow'), knee: document.getElementById('ai_knee') };
 const manualDisplay = document.getElementById('manual-angle');
+const flash = document.getElementById('flash');
+
 let manualPoints = [];
+let lastAngles = { elbow: 0, knee: 0 };
+let stableCounter = 0; // 静止検知用
+
+// --- 1. 写真撮影機能 ---
+function takePhoto(label) {
+    flash.style.opacity = "1";
+    setTimeout(() => { flash.style.opacity = "0"; }, 100);
+    
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = canvasElement.width;
+    tempCanvas.height = canvasElement.height;
+    const ctx = tempCanvas.getContext('2d');
+    
+    ctx.drawImage(videoElement, 0, 0);
+    ctx.drawImage(canvasElement, 0, 0);
+    
+    const link = document.createElement('a');
+    link.href = tempCanvas.toDataURL('image/png');
+    link.download = `ROM_${new Date().getTime()}.png`;
+    link.click();
+    console.log("Saved by: " + label);
+}
+
+// --- 2. 音声認識 (Galaxy/Android対応) ---
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SpeechRecognition) {
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.continuous = true;
+    recognition.onresult = (event) => {
+        const text = event.results[event.results.length - 1][0].transcript;
+        if (text.includes("シャッター") || text.includes("とって")) {
+            takePhoto('音声操作');
+        }
+    };
+    recognition.start();
+    recognition.onerror = () => { recognition.start(); }; // エラー時自動再起動
+}
+
+// 角度計算
 function calculateAngle(A, B, C) {
     const BA = { x: A.x - B.x, y: A.y - B.y };
     const BC = { x: C.x - B.x, y: C.y - B.y };
@@ -51,60 +98,77 @@ function calculateAngle(A, B, C) {
     const magBA = Math.sqrt(BA.x * BA.x + BA.y * BA.y);
     const magBC = Math.sqrt(BC.x * BC.x + BC.y * BC.y);
     if(magBA === 0 || magBC === 0) return 0;
-    let angle = Math.acos(dot / (magBA * magBC));
-    return (angle * 180 / Math.PI).toFixed(1);
+    return (Math.acos(dot / (magBA * magBC)) * 180 / Math.PI).toFixed(1);
 }
+
+// 手動タップ (3点タップは従来通り、背景タップは写真)
 canvasElement.addEventListener("pointerdown", function(e) {
     const rect = canvasElement.getBoundingClientRect();
-    const scaleX = canvasElement.width / rect.width;
-    const scaleY = canvasElement.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    if (manualPoints.length < 3) { manualPoints.push({x, y}); }
-    if (manualPoints.length === 3) {
-        const angle = calculateAngle(manualPoints[0], manualPoints[1], manualPoints[2]);
-        manualDisplay.innerText = "手動角度: " + angle + "°";
+    const x = (e.clientX - rect.left) * (canvasElement.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvasElement.height / rect.height);
+
+    if (manualPoints.length < 3) {
+        manualPoints.push({x, y});
+        if (manualPoints.length === 3) {
+            const angle = calculateAngle(manualPoints[0], manualPoints[1], manualPoints[2]);
+            manualDisplay.innerText = angle + "°";
+        }
     }
 });
-function resetManual() { manualPoints = []; manualDisplay.innerText = "3点タップしてください"; }
+
+function resetManual() { manualPoints = []; manualDisplay.innerText = "3点タップ"; }
+
 function onResults(results) {
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
     if (results.poseLandmarks) {
         drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF0055', lineWidth: 2});
         drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#00FF00', lineWidth: 1, radius: 3});
+        
         const lm = results.poseLandmarks;
-        function get(p){ return { x: p.x * canvasElement.width, y: p.y * canvasElement.height }; }
+        const get = (p) => ({ x: p.x * canvasElement.width, y: p.y * canvasElement.height });
+        
         try {
-            aiNodes.elbow.innerText = calculateAngle(get(lm[12]), get(lm[14]), get(lm[16]));
-            aiNodes.knee.innerText = calculateAngle(get(lm[24]), get(lm[26]), get(lm[28]));
-            aiNodes.shoulder.innerText = calculateAngle(get(lm[24]), get(lm[12]), get(lm[14]));
+            const currentElbow = calculateAngle(get(lm[12]), get(lm[14]), get(lm[16]));
+            aiNodes.elbow.innerText = currentElbow;
+            
+            // --- 3. 静止検知ロジック (3秒間角度がほぼ変わらなければ撮影) ---
+            if (Math.abs(currentElbow - lastAngles.elbow) < 2.0) { // 変化が2度以内
+                stableCounter++;
+            } else {
+                stableCounter = 0;
+            }
+            lastAngles.elbow = currentElbow;
+
+            if (stableCounter > 90) { // 約3秒 (30fps換算)
+                takePhoto('静止検知');
+                stableCounter = -100; // 連続撮影防止
+            }
         } catch(e) {}
     }
+
+    // 描画処理
     manualPoints.forEach((p, i) => {
         canvasCtx.fillStyle = "red";
-        canvasCtx.beginPath();
-        canvasCtx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-        canvasCtx.fill();
-        canvasCtx.fillStyle = "white";
-        canvasCtx.fillText(i+1, p.x-3, p.y+3);
+        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 8, 0, Math.PI * 2); canvasCtx.fill();
     });
     if(manualPoints.length >= 2) {
-        canvasCtx.strokeStyle = "red";
-        canvasCtx.lineWidth = 3;
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(manualPoints[0].x, manualPoints[0].y);
+        canvasCtx.strokeStyle = "red"; canvasCtx.lineWidth = 3;
+        canvasCtx.beginPath(); canvasCtx.moveTo(manualPoints[0].x, manualPoints[0].y);
         canvasCtx.lineTo(manualPoints[1].x, manualPoints[1].y);
         if(manualPoints.length === 3) canvasCtx.lineTo(manualPoints[2].x, manualPoints[2].y);
         canvasCtx.stroke();
     }
     canvasCtx.restore();
 }
+
 const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
 pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
 pose.onResults(onResults);
+
 const camera = new Camera(videoElement, {
     onFrame: async () => { await pose.send({image: videoElement}); },
     width: 640, height: 480, facingMode: "environment"
