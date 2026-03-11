@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ことのは ROMカメラ PRO v5</title>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<title>ことのは ROMカメラ PRO v7</title>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <style>
     html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; touch-action: none; }
@@ -13,9 +12,17 @@
     #container { position: relative; flex: 1; width: 100vw; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; }
     video, #captured_image { position: absolute; width: 100%; height: 100%; object-fit: contain; }
     canvas#output_canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; z-index: 5; pointer-events: auto; }
-    #overlay-val { position: absolute; top: 15px; left: 15px; text-shadow: 2px 2px 4px #000; z-index: 10; cursor: pointer; pointer-events: auto; }
-    .main-angle { font-size: 42px; color: #00ff00; font-weight: bold; }
-    .sub-label { font-size: 14px; color: #fff; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 4px; }
+    
+    /* 角度パネル */
+    #overlay-val { 
+        position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+        text-shadow: 2px 2px 4px #000; z-index: 50; 
+        text-align: center; background: rgba(0,0,0,0.4); padding: 12px; border-radius: 12px;
+        pointer-events: auto; touch-action: none; border: 1px solid rgba(255,255,255,0.2);
+    }
+    .main-angle { font-size: 48px; color: #00ff00; font-weight: bold; line-height: 1; }
+    .sub-label { font-size: 11px; color: #ccc; display: none; margin-top: 6px; line-height: 1.2; }
+
     #info-panel { background: #222; padding: 10px 10px 35px 10px; border-top: 1px solid #444; z-index: 20; }
     .btn-group { display: flex; gap: 10px; max-width: 500px; margin: 0 auto; }
     button { flex: 1; padding: 18px 5px; border-radius: 12px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; color: white; }
@@ -48,9 +55,10 @@
     <video id="input_video" playsinline muted></video>
     <img id="captured_image" style="display:none;">
     <canvas id="output_canvas"></canvas>
-    <div id="overlay-val" onclick="toggleFlip()">
-        <div class="main-angle"><span id="manual-angle">--</span>°</div>
-        <span class="sub-label">タップで反転 (180-θ)</span>
+    
+    <div id="overlay-val">
+        <div class="main-angle" id="angle-text">--°</div>
+        <div id="flip-hint" class="sub-label">タップ：反転<br>長押し：移動</div>
     </div>
 </div>
 
@@ -67,22 +75,62 @@ const videoElement = document.getElementById('input_video');
 const imageElement = document.getElementById('captured_image');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
-const manualDisplay = document.getElementById('manual-angle');
+const angleDisplay = document.getElementById('angle-text');
+const flipHint = document.getElementById('flip-hint');
 const guideMsg = document.getElementById('guide-msg');
+const overlayVal = document.getElementById('overlay-val');
 const flash = document.getElementById('flash');
 
 let manualPoints = [];
 let cameraObj = null;
 let isImageMode = false;
 let lastClickTime = 0;
-let isFlipped = false; // 角度反転フラグ
+let isFlipped = false;
 
 const POINT_LABELS = ["①股関節/肩", "②膝/肘", "③足首/手首"];
+
+// --- 長押し移動 & タップ反転ロジック ---
+let pressTimer;
+let isDragging = false;
+let moveStarted = false;
+let offset = { x: 0, y: 0 };
+
+overlayVal.addEventListener('touchstart', (e) => {
+    moveStarted = false;
+    const touch = e.touches[0];
+    // 0.5秒長押しでドラッグモード
+    pressTimer = window.setTimeout(() => {
+        isDragging = true;
+        moveStarted = true;
+        overlayVal.style.background = "rgba(44, 123, 229, 0.6)"; // 移動中は青っぽく
+        offset.x = touch.clientX - overlayVal.offsetLeft;
+        offset.y = touch.clientY - overlayVal.offsetTop;
+    }, 500);
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    const touch = e.touches[0];
+    overlayVal.style.left = (touch.clientX - offset.x + (overlayVal.offsetWidth/2)) + 'px';
+    overlayVal.style.top = (touch.clientY - offset.y) + 'px';
+    overlayVal.style.transform = 'translateX(-50%)';
+}, { passive: true });
+
+overlayVal.addEventListener('touchend', (e) => {
+    clearTimeout(pressTimer);
+    if (!moveStarted && manualPoints.length === 3) {
+        // 長押しにならなかった場合は反転
+        isFlipped = !isFlipped;
+        updateAngle();
+        drawAll();
+    }
+    isDragging = false;
+    overlayVal.style.background = "rgba(0,0,0,0.4)";
+});
 
 async function initApp() {
     document.getElementById('start-overlay').style.display = 'none';
     startCamera("environment");
-    startVoice();
 }
 
 async function startCamera(mode) {
@@ -104,8 +152,6 @@ async function startCamera(mode) {
     resetManual();
 }
 
-function switchCamera(mode) { startCamera(mode); }
-
 function loadLocalImage(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -126,12 +172,6 @@ function loadLocalImage(event) {
     reader.readAsDataURL(file);
 }
 
-function toggleFlip() {
-    isFlipped = !isFlipped;
-    updateAngle();
-    drawAll();
-}
-
 function takePhoto() {
     flash.style.opacity = "1";
     setTimeout(() => { flash.style.opacity = "0"; }, 100);
@@ -146,20 +186,6 @@ function takePhoto() {
     link.href = tempCanvas.toDataURL('image/jpeg', 0.8);
     link.download = `ROM_${new Date().getTime()}.jpg`;
     link.click();
-}
-
-function startVoice() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'ja-JP'; recognition.continuous = true;
-        recognition.onresult = (event) => {
-            const text = event.results[event.results.length - 1][0].transcript;
-            if (text.match(/シャッター|とって|はい|撮影|保存/)) takePhoto();
-        };
-        recognition.onend = () => recognition.start();
-        recognition.start();
-    }
 }
 
 canvasElement.addEventListener("click", (e) => {
@@ -198,9 +224,12 @@ function updateAngle() {
         const magBC = Math.sqrt(BC.x * BC.x + BC.y * BC.y);
         let angle = Math.acos(dot / (magBA * magBC)) * 180 / Math.PI;
         if (isFlipped) angle = 180 - angle;
-        manualDisplay.innerText = angle.toFixed(1);
+        angleDisplay.innerText = angle.toFixed(1) + "°";
+        flipHint.style.display = "block";
         guideMsg.innerText = "計測完了！";
     } else {
+        angleDisplay.innerText = "--°";
+        flipHint.style.display = "none";
         guideMsg.innerText = POINT_LABELS[manualPoints.length] + " をタップ";
     }
 }
@@ -208,37 +237,30 @@ function updateAngle() {
 function drawAll() {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
-    // 水平ガイド線 (中央)
-    canvasCtx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-    canvasCtx.lineWidth = 2;
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(0, canvasElement.height / 2);
-    canvasCtx.lineTo(canvasElement.width, canvasElement.height / 2);
-    canvasCtx.stroke();
-
-    // 延長基準線 (1点目と2点目を結ぶ点線)
+    // 延長基準線
     if (manualPoints.length >= 2) {
-        const p1 = manualPoints[0];
-        const p2 = manualPoints[1];
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        
-        canvasCtx.setLineDash([10, 10]);
-        canvasCtx.strokeStyle = "rgba(0, 255, 0, 0.6)";
+        const p1 = manualPoints[0], p2 = manualPoints[1];
+        const dx = p2.x - p1.x, dy = p2.y - p1.y;
+        canvasCtx.setLineDash([15, 15]);
+        canvasCtx.strokeStyle = "rgba(0, 255, 0, 0.5)";
         canvasCtx.beginPath();
         canvasCtx.moveTo(p1.x, p1.y);
-        canvasCtx.lineTo(p2.x + dx * 2, p2.y + dy * 2); // 2点目の先に伸ばす
+        canvasCtx.lineTo(p2.x + dx * 2.5, p2.y + dy * 2.5);
         canvasCtx.stroke();
         canvasCtx.setLineDash([]);
     }
 
-    // 点と線の描画
     manualPoints.forEach((p, i) => {
         canvasCtx.fillStyle = "#ff0000";
         canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 22, 0, Math.PI * 2); canvasCtx.fill();
         canvasCtx.strokeStyle = "#ffffff"; canvasCtx.lineWidth = 5; canvasCtx.stroke();
-        canvasCtx.fillStyle = "#ffffff"; canvasCtx.font = "bold 30px sans-serif";
-        canvasCtx.fillText(POINT_LABELS[i].split("/")[0].replace(/[①②③]/, ""), p.x + 35, p.y - 10);
+        
+        canvasCtx.font = "bold 34px sans-serif";
+        const label = POINT_LABELS[i].split("/")[0].replace(/[①②③]/, "");
+        canvasCtx.fillStyle = "rgba(0,0,0,0.5)";
+        canvasCtx.fillRect(p.x + 35, p.y - 45, 100, 50);
+        canvasCtx.fillStyle = "#ffffff";
+        canvasCtx.fillText(label, p.x + 40, p.y - 10);
     });
     
     if(manualPoints.length >= 2) {
@@ -252,7 +274,6 @@ function drawAll() {
 
 function resetManual() { 
     manualPoints = []; 
-    manualDisplay.innerText = "--"; 
     isFlipped = false;
     updateAngle(); 
     drawAll(); 
