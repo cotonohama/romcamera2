@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ことのは ROMカメラ 安定版v3</title>
+<title>ことのは ROMカメラ PRO v5</title>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <style>
@@ -13,8 +13,10 @@
     #container { position: relative; flex: 1; width: 100vw; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; }
     video, #captured_image { position: absolute; width: 100%; height: 100%; object-fit: contain; }
     canvas#output_canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; z-index: 5; pointer-events: auto; }
-    #overlay-val { position: absolute; top: 10px; left: 10px; text-shadow: 2px 2px 2px #000; z-index: 10; font-size: 32px; color: #00ff00; font-weight: bold; pointer-events: none; }
-    #info-panel { background: #222; padding: 10px 10px 30px 10px; border-top: 1px solid #444; z-index: 20; }
+    #overlay-val { position: absolute; top: 15px; left: 15px; text-shadow: 2px 2px 4px #000; z-index: 10; cursor: pointer; pointer-events: auto; }
+    .main-angle { font-size: 42px; color: #00ff00; font-weight: bold; }
+    .sub-label { font-size: 14px; color: #fff; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 4px; }
+    #info-panel { background: #222; padding: 10px 10px 35px 10px; border-top: 1px solid #444; z-index: 20; }
     .btn-group { display: flex; gap: 10px; max-width: 500px; margin: 0 auto; }
     button { flex: 1; padding: 18px 5px; border-radius: 12px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; color: white; }
     .btn-blue { background: #2c7be5; } .btn-red { background: #d63031; } .btn-green { background: #27ae60; }
@@ -26,17 +28,17 @@
 
 <div id="start-overlay">
     <h2>ことのは ROMカメラ</h2>
-    <button class="btn-blue" onclick="initApp()" style="max-width: 250px; padding: 20px;">カメラを開始する</button>
+    <button class="btn-blue" onclick="initApp()" style="max-width: 250px; padding: 20px;">開始</button>
 </div>
 
 <div id="flash"></div>
 
 <div id="header">
-    <select id="camera-select" onchange="switchCamera(this.value)" style="background:#444; color:white; padding:8px; border-radius:5px; border:none;">
+    <select id="camera-select" onchange="switchCamera(this.value)" style="background:#444; color:white; padding:10px; border-radius:8px; border:none;">
         <option value="environment">背面カメラ</option>
         <option value="user">前面カメラ</option>
     </select>
-    <label class="btn-green" style="padding: 8px 12px; border-radius: 5px; font-size: 14px; cursor: pointer;">
+    <label class="btn-green" style="padding: 10px 15px; border-radius: 8px; font-size: 14px; cursor: pointer;">
         📂 写真読込
         <input type="file" accept="image/*" onchange="loadLocalImage(event)" style="display:none;">
     </label>
@@ -46,13 +48,16 @@
     <video id="input_video" playsinline muted></video>
     <img id="captured_image" style="display:none;">
     <canvas id="output_canvas"></canvas>
-    <div id="overlay-val"><span id="manual-angle">--</span>°</div>
+    <div id="overlay-val" onclick="toggleFlip()">
+        <div class="main-angle"><span id="manual-angle">--</span>°</div>
+        <span class="sub-label">タップで反転 (180-θ)</span>
+    </div>
 </div>
 
 <div id="info-panel">
-    <div id="guide-msg" style="font-size: 14px; margin-bottom: 10px; color: #f1c40f; font-weight: bold;">準備中...</div>
+    <div id="guide-msg" style="font-size: 15px; margin-bottom: 12px; color: #f1c40f; font-weight: bold; text-align: center;">準備中...</div>
     <div class="btn-group">
-        <button class="btn-blue" onclick="takePhoto()">📸 撮影</button>
+        <button class="btn-blue" onclick="takePhoto()">📸 保存</button>
         <button class="btn-red" onclick="resetManual()">🔄 リセット</button>
     </div>
 </div>
@@ -68,29 +73,29 @@ const flash = document.getElementById('flash');
 
 let manualPoints = [];
 let cameraObj = null;
-let currentFacingMode = "environment";
 let isImageMode = false;
 let lastClickTime = 0;
+let isFlipped = false; // 角度反転フラグ
 
-const LABELS = ["①股関節/肩", "②膝/肘", "③足首/手首"];
+const POINT_LABELS = ["①股関節/肩", "②膝/肘", "③足首/手首"];
 
 async function initApp() {
     document.getElementById('start-overlay').style.display = 'none';
-    startCamera(currentFacingMode);
+    startCamera("environment");
     startVoice();
 }
 
-function startCamera(mode) {
+async function startCamera(mode) {
     isImageMode = false;
     videoElement.style.display = "block";
     imageElement.style.display = "none";
-    if(cameraObj) { cameraObj.stop(); }
+    if(cameraObj) await cameraObj.stop();
     cameraObj = new Camera(videoElement, {
-        onFrame: async () => { 
+        onFrame: async () => {
             if(!isImageMode) {
                 canvasElement.width = videoElement.videoWidth;
                 canvasElement.height = videoElement.videoHeight;
-                drawAll(); 
+                drawAll();
             }
         },
         width: 1280, height: 720, facingMode: mode
@@ -99,7 +104,7 @@ function startCamera(mode) {
     resetManual();
 }
 
-function switchCamera(mode) { currentFacingMode = mode; startCamera(mode); }
+function switchCamera(mode) { startCamera(mode); }
 
 function loadLocalImage(event) {
     const file = event.target.files[0];
@@ -115,9 +120,16 @@ function loadLocalImage(event) {
             canvasElement.width = imageElement.naturalWidth;
             canvasElement.height = imageElement.naturalHeight;
             resetManual();
+            drawAll();
         };
     };
     reader.readAsDataURL(file);
+}
+
+function toggleFlip() {
+    isFlipped = !isFlipped;
+    updateAngle();
+    drawAll();
 }
 
 function takePhoto() {
@@ -125,10 +137,10 @@ function takePhoto() {
     setTimeout(() => { flash.style.opacity = "0"; }, 100);
     const tempCanvas = document.createElement('canvas');
     const source = isImageMode ? imageElement : videoElement;
-    tempCanvas.width = isImageMode ? imageElement.naturalWidth : videoElement.videoWidth;
-    tempCanvas.height = isImageMode ? imageElement.naturalHeight : videoElement.videoHeight;
+    tempCanvas.width = canvasElement.width;
+    tempCanvas.height = canvasElement.height;
     const ctx = tempCanvas.getContext('2d');
-    ctx.drawImage(source, 0, 0);
+    ctx.drawImage(source, 0, 0, tempCanvas.width, tempCanvas.height);
     ctx.drawImage(canvasElement, 0, 0);
     const link = document.createElement('a');
     link.href = tempCanvas.toDataURL('image/jpeg', 0.8);
@@ -143,7 +155,7 @@ function startVoice() {
         recognition.lang = 'ja-JP'; recognition.continuous = true;
         recognition.onresult = (event) => {
             const text = event.results[event.results.length - 1][0].transcript;
-            if (text.match(/シャッター|とって|はい|撮影/)) takePhoto();
+            if (text.match(/シャッター|とって|はい|撮影|保存/)) takePhoto();
         };
         recognition.onend = () => recognition.start();
         recognition.start();
@@ -153,7 +165,7 @@ function startVoice() {
 canvasElement.addEventListener("click", (e) => {
     const now = Date.now();
     if (now - lastClickTime < 300) {
-        takePhoto(); // ダブルタップで撮影
+        takePhoto();
         lastClickTime = 0;
         return;
     }
@@ -162,8 +174,10 @@ canvasElement.addEventListener("click", (e) => {
     setTimeout(() => {
         if (lastClickTime === 0) return;
         const rect = canvasElement.getBoundingClientRect();
-        const x = (e.clientX - rect.left) * (canvasElement.width / rect.width);
-        const y = (e.clientY - rect.top) * (canvasElement.height / rect.height);
+        const scaleX = canvasElement.width / rect.width;
+        const scaleY = canvasElement.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
 
         if (manualPoints.length < 3) {
             manualPoints.push({x, y});
@@ -182,25 +196,53 @@ function updateAngle() {
         const dot = BA.x * BC.x + BA.y * BC.y;
         const magBA = Math.sqrt(BA.x * BA.x + BA.y * BA.y);
         const magBC = Math.sqrt(BC.x * BC.x + BC.y * BC.y);
-        const angle = (Math.acos(dot / (magBA * magBC)) * 180 / Math.PI).toFixed(1);
-        manualDisplay.innerText = angle;
+        let angle = Math.acos(dot / (magBA * magBC)) * 180 / Math.PI;
+        if (isFlipped) angle = 180 - angle;
+        manualDisplay.innerText = angle.toFixed(1);
         guideMsg.innerText = "計測完了！";
     } else {
-        guideMsg.innerText = LABELS[manualPoints.length] + " をタップ";
+        guideMsg.innerText = POINT_LABELS[manualPoints.length] + " をタップ";
     }
 }
 
 function drawAll() {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    
+    // 水平ガイド線 (中央)
+    canvasCtx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    canvasCtx.lineWidth = 2;
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(0, canvasElement.height / 2);
+    canvasCtx.lineTo(canvasElement.width, canvasElement.height / 2);
+    canvasCtx.stroke();
+
+    // 延長基準線 (1点目と2点目を結ぶ点線)
+    if (manualPoints.length >= 2) {
+        const p1 = manualPoints[0];
+        const p2 = manualPoints[1];
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        
+        canvasCtx.setLineDash([10, 10]);
+        canvasCtx.strokeStyle = "rgba(0, 255, 0, 0.6)";
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(p1.x, p1.y);
+        canvasCtx.lineTo(p2.x + dx * 2, p2.y + dy * 2); // 2点目の先に伸ばす
+        canvasCtx.stroke();
+        canvasCtx.setLineDash([]);
+    }
+
+    // 点と線の描画
     manualPoints.forEach((p, i) => {
-        canvasCtx.fillStyle = "red";
-        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 20, 0, Math.PI * 2); canvasCtx.fill();
-        canvasCtx.strokeStyle = "white"; canvasCtx.lineWidth = 4; canvasCtx.stroke();
-        canvasCtx.fillStyle = "white"; canvasCtx.font = "bold 26px sans-serif";
-        canvasCtx.fillText(LABELS[i].split(" ")[1], p.x + 30, p.y + 10);
+        canvasCtx.fillStyle = "#ff0000";
+        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 22, 0, Math.PI * 2); canvasCtx.fill();
+        canvasCtx.strokeStyle = "#ffffff"; canvasCtx.lineWidth = 5; canvasCtx.stroke();
+        canvasCtx.fillStyle = "#ffffff"; canvasCtx.font = "bold 30px sans-serif";
+        canvasCtx.fillText(POINT_LABELS[i].split("/")[0].replace(/[①②③]/, ""), p.x + 35, p.y - 10);
     });
+    
     if(manualPoints.length >= 2) {
-        canvasCtx.strokeStyle = "red"; canvasCtx.lineWidth = 6;
+        canvasCtx.strokeStyle = "#ff0000"; canvasCtx.lineWidth = 8;
         canvasCtx.beginPath(); canvasCtx.moveTo(manualPoints[0].x, manualPoints[0].y);
         canvasCtx.lineTo(manualPoints[1].x, manualPoints[1].y);
         if(manualPoints.length === 3) canvasCtx.lineTo(manualPoints[2].x, manualPoints[2].y);
@@ -211,7 +253,8 @@ function drawAll() {
 function resetManual() { 
     manualPoints = []; 
     manualDisplay.innerText = "--"; 
-    guideMsg.innerText = LABELS[0] + " をタップ";
+    isFlipped = false;
+    updateAngle(); 
     drawAll(); 
 }
 </script>
