@@ -3,36 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ことのは ROMカメラ 安定版</title>
+<title>ことのは ROMカメラ 精密版</title>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 <style>
     body { font-family: sans-serif; text-align: center; background: #000; color: white; margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-    #container { position: relative; flex: 1; width: 100vw; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #000; }
+    #header { background: #222; padding: 5px; display: flex; justify-content: space-around; align-items: center; font-size: 13px; border-bottom: 1px solid #444; }
+    #container { position: relative; flex: 1; width: 100vw; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
     video { position: absolute; width: 100%; height: 100%; object-fit: contain; }
     canvas#output_canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; }
-    #overlay { position: absolute; top: 15px; left: 15px; text-align: left; pointer-events: none; text-shadow: 2px 2px 3px #000; z-index: 10; }
-    #info-panel { padding: 15px; background: #222; display: flex; flex-direction: column; gap: 10px; z-index: 20; }
-    .display-row { display: flex; justify-content: space-around; font-size: 14px; }
-    .angle-val { color: #00ff00; font-weight: bold; font-size: 22px; }
-    .btn-group { display: flex; gap: 10px; }
-    button { flex: 1; padding: 18px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; font-size: 18px; }
+    #overlay { position: absolute; top: 10px; left: 10px; text-align: left; pointer-events: none; text-shadow: 2px 2px 2px #000; font-size: 14px; }
+    #info-panel { background: #222; padding: 10px; border-top: 1px solid #444; }
+    .display-row { display: flex; justify-content: space-around; font-size: 12px; margin-bottom: 8px; color: #ccc; }
+    .btn-group { display: flex; gap: 8px; }
+    button { flex: 1; padding: 12px; border-radius: 8px; border: none; font-weight: bold; font-size: 15px; cursor: pointer; color: white; }
+    .btn-blue { background: #2c7be5; }
+    .btn-red { background: #d63031; }
+    select { background: #444; color: white; border: 1px solid #666; padding: 5px; border-radius: 4px; }
     #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .btn-blue { background: #2c7be5; color: white; }
-    .btn-red { background: #d63031; color: white; }
-    #flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 1001; }
+    #flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 1001; transition: opacity 0.1s; }
+    .angle-val { color: #00ff00; font-weight: bold; font-size: 18px; }
 </style>
 </head>
 <body>
 
 <div id="start-overlay">
     <h2 style="margin-bottom:20px;">ことのは ROMカメラ</h2>
-    <button class="btn-blue" onclick="initApp()" style="max-width: 280px;">カメラ・音声を起動する</button>
-    <p style="font-size: 14px; margin-top: 20px; color: #aaa;">タップして計測を開始してください</p>
+    <button class="btn-blue" onclick="initApp()" style="max-width: 250px;">計測を開始する</button>
 </div>
 
 <div id="flash"></div>
+
+<div id="header">
+    <span>カメラ切り替え:</span>
+    <select id="camera-select" onchange="switchCamera(this.value)">
+        <option value="environment">背面（アウト）</option>
+        <option value="user">前面（イン）</option>
+    </select>
+</div>
 
 <div id="container">
     <video id="input_video" playsinline muted></video>
@@ -68,49 +77,47 @@ const flash = document.getElementById('flash');
 let manualPoints = [];
 let lastAngle = 0;
 let stableCounter = 0;
+let cameraObj = null;
+let currentFacingMode = "environment";
 
-// アプリ起動
 async function initApp() {
     document.getElementById('start-overlay').style.display = 'none';
-    
-    // 画面消灯防止
-    if ('wakeLock' in navigator) {
-        try { await navigator.wakeLock.request('screen'); } catch (err) {}
-    }
-
-    // カメラと音声の開始
+    if ('wakeLock' in navigator) { try { await navigator.wakeLock.request('screen'); } catch (err) {} }
     startVoice();
-    
-    // カメラ設定を確実にする
-    const camera = new Camera(videoElement, {
+    startCamera(currentFacingMode);
+}
+
+function startCamera(mode) {
+    if(cameraObj) { cameraObj.stop(); }
+    cameraObj = new Camera(videoElement, {
         onFrame: async () => { await pose.send({image: videoElement}); },
-        width: 1280, height: 720 // 高解像度化
+        width: 1280, height: 720, facingMode: mode
     });
-    
-    try {
-        await camera.start();
-        console.log("Camera started");
-    } catch (e) {
-        alert("カメラの起動に失敗しました。ブラウザの設定で許可してください。");
-    }
+    cameraObj.start();
+}
+
+function switchCamera(mode) {
+    currentFacingMode = mode;
+    startCamera(mode);
 }
 
 function takePhoto(label) {
     flash.style.opacity = "1";
     setTimeout(() => { flash.style.opacity = "0"; }, 100);
     
+    // 写真のサイズ圧縮設定 (1280x720を維持しつつJPEG圧縮)
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = videoElement.videoWidth;
     tempCanvas.height = videoElement.videoHeight;
     const ctx = tempCanvas.getContext('2d');
-    
-    // 映像を左右反転させずに描画
     ctx.drawImage(videoElement, 0, 0);
     ctx.drawImage(canvasElement, 0, 0);
     
+    // 圧縮率 0.6 (60%) で保存。判別しやすく、ファイルサイズは大幅に減ります。
+    const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
     const link = document.createElement('a');
-    link.href = tempCanvas.toDataURL('image/png');
-    link.download = `Kotonoha_${new Date().getTime()}.png`;
+    link.href = dataUrl;
+    link.download = `Kotonoha_${new Date().getTime()}.jpg`;
     link.click();
 }
 
