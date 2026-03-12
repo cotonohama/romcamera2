@@ -1,283 +1,315 @@
 <!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ことのは ROMカメラ PRO v7</title>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-<style>
-    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; touch-action: none; }
-    body { font-family: sans-serif; display: flex; flex-direction: column; }
-    #header { background: #222; padding: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; z-index: 20; }
-    #container { position: relative; flex: 1; width: 100vw; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; }
-    video, #captured_image { position: absolute; width: 100%; height: 100%; object-fit: contain; }
-    canvas#output_canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; z-index: 5; pointer-events: auto; }
-    
-    /* 角度パネル */
-    #overlay-val { 
-        position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
-        text-shadow: 2px 2px 4px #000; z-index: 50; 
-        text-align: center; background: rgba(0,0,0,0.4); padding: 12px; border-radius: 12px;
-        pointer-events: auto; touch-action: none; border: 1px solid rgba(255,255,255,0.2);
-    }
-    .main-angle { font-size: 48px; color: #00ff00; font-weight: bold; line-height: 1; }
-    .sub-label { font-size: 11px; color: #ccc; display: none; margin-top: 6px; line-height: 1.2; }
 
-    #info-panel { background: #222; padding: 10px 10px 35px 10px; border-top: 1px solid #444; z-index: 20; }
-    .btn-group { display: flex; gap: 10px; max-width: 500px; margin: 0 auto; }
-    button { flex: 1; padding: 18px 5px; border-radius: 12px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; color: white; }
-    .btn-blue { background: #2c7be5; } .btn-red { background: #d63031; } .btn-green { background: #27ae60; }
-    #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; }
-    #flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 1001; }
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>ことのは ROM v10</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+<style>
+
+body{
+margin:0;
+background:#111;
+color:white;
+text-align:center;
+font-family:sans-serif;
+overflow:hidden;
+touch-action:none;
+}
+
+#container{
+position:relative;
+width:100vw;
+height:75vh;
+background:#000;
+}
+
+video,canvas{
+position:absolute;
+left:50%;
+top:50%;
+transform:translate(-50%,-50%);
+max-width:100%;
+max-height:100%;
+}
+
+#overlay{
+position:absolute;
+top:10px;
+left:10px;
+background:rgba(0,0,0,0.7);
+padding:12px;
+border-radius:12px;
+text-align:left;
+z-index:100;
+border:1px solid rgba(255,255,255,0.2);
+min-width:160px;
+cursor:move;
+}
+
+.angle-item{
+font-size:18px;
+margin-bottom:4px;
+font-weight:bold;
+}
+
+.main-val{
+color:#00ff00;
+}
+
+.hint{
+font-size:9px;
+color:#aaa;
+margin-top:5px;
+text-align:center;
+}
+
+.controls{
+padding:10px;
+background:#222;
+display:flex;
+justify-content:center;
+gap:10px;
+flex-wrap:wrap;
+}
+
+button{
+font-size:16px;
+padding:12px 18px;
+border-radius:8px;
+border:none;
+font-weight:bold;
+cursor:pointer;
+}
+
+.btn-save{
+background:#2c7be5;
+color:white;
+}
+
+.btn-sub{
+background:#444;
+color:white;
+}
+
 </style>
+
 </head>
+
 <body>
 
-<div id="start-overlay">
-    <h2>ことのは ROMカメラ</h2>
-    <button class="btn-blue" onclick="initApp()" style="max-width: 250px; padding: 20px;">開始</button>
-</div>
-
-<div id="flash"></div>
-
-<div id="header">
-    <select id="camera-select" onchange="switchCamera(this.value)" style="background:#444; color:white; padding:10px; border-radius:8px; border:none;">
-        <option value="environment">背面カメラ</option>
-        <option value="user">前面カメラ</option>
-    </select>
-    <label class="btn-green" style="padding: 10px 15px; border-radius: 8px; font-size: 14px; cursor: pointer;">
-        📂 写真読込
-        <input type="file" accept="image/*" onchange="loadLocalImage(event)" style="display:none;">
-    </label>
-</div>
-
 <div id="container">
-    <video id="input_video" playsinline muted></video>
-    <img id="captured_image" style="display:none;">
-    <canvas id="output_canvas"></canvas>
-    
-    <div id="overlay-val">
-        <div class="main-angle" id="angle-text">--°</div>
-        <div id="flip-hint" class="sub-label">タップ：反転<br>長押し：移動</div>
-    </div>
+
+<video id="video" autoplay playsinline muted></video> <canvas id="canvas"></canvas>
+
+<div id="overlay">
+<div id="angles-list"></div>
+<div class="hint">タップ:角度反転 / 長押し:移動</div>
 </div>
 
-<div id="info-panel">
-    <div id="guide-msg" style="font-size: 15px; margin-bottom: 12px; color: #f1c40f; font-weight: bold; text-align: center;">準備中...</div>
-    <div class="btn-group">
-        <button class="btn-blue" onclick="takePhoto()">📸 保存</button>
-        <button class="btn-red" onclick="resetManual()">🔄 リセット</button>
-    </div>
+</div>
+
+<div class="controls">
+
+<button class="btn-save" onclick="takePhoto()">📸 保存</button> <button class="btn-sub" onclick="resetMax()">MAXリセット</button>
+
 </div>
 
 <script>
-const videoElement = document.getElementById('input_video');
-const imageElement = document.getElementById('captured_image');
-const canvasElement = document.getElementById('output_canvas');
-const canvasCtx = canvasElement.getContext('2d');
-const angleDisplay = document.getElementById('angle-text');
-const flipHint = document.getElementById('flip-hint');
-const guideMsg = document.getElementById('guide-msg');
-const overlayVal = document.getElementById('overlay-val');
-const flash = document.getElementById('flash');
 
-let manualPoints = [];
-let cameraObj = null;
-let isImageMode = false;
-let lastClickTime = 0;
-let isFlipped = false;
+const video=document.getElementById("video")
+const canvas=document.getElementById("canvas")
+const ctx=canvas.getContext("2d")
+const anglesList=document.getElementById("angles-list")
+const overlay=document.getElementById("overlay")
 
-const POINT_LABELS = ["①股関節/肩", "②膝/肘", "③足首/手首"];
+let detector
+let isFlipped=false
+let maxAngles={}
 
-// --- 長押し移動 & タップ反転ロジック ---
-let pressTimer;
-let isDragging = false;
-let moveStarted = false;
-let offset = { x: 0, y: 0 };
+let pressTimer
+let isDragging=false
+let offset={x:0,y:0}
 
-overlayVal.addEventListener('touchstart', (e) => {
-    moveStarted = false;
-    const touch = e.touches[0];
-    // 0.5秒長押しでドラッグモード
-    pressTimer = window.setTimeout(() => {
-        isDragging = true;
-        moveStarted = true;
-        overlayVal.style.background = "rgba(44, 123, 229, 0.6)"; // 移動中は青っぽく
-        offset.x = touch.clientX - overlayVal.offsetLeft;
-        offset.y = touch.clientY - overlayVal.offsetTop;
-    }, 500);
-}, { passive: true });
+overlay.addEventListener("touchstart",(e)=>{
 
-document.addEventListener('touchmove', (e) => {
-    if (!isDragging) return;
-    const touch = e.touches[0];
-    overlayVal.style.left = (touch.clientX - offset.x + (overlayVal.offsetWidth/2)) + 'px';
-    overlayVal.style.top = (touch.clientY - offset.y) + 'px';
-    overlayVal.style.transform = 'translateX(-50%)';
-}, { passive: true });
+const touch=e.touches[0]
 
-overlayVal.addEventListener('touchend', (e) => {
-    clearTimeout(pressTimer);
-    if (!moveStarted && manualPoints.length === 3) {
-        // 長押しにならなかった場合は反転
-        isFlipped = !isFlipped;
-        updateAngle();
-        drawAll();
-    }
-    isDragging = false;
-    overlayVal.style.background = "rgba(0,0,0,0.4)";
-});
+pressTimer=setTimeout(()=>{
 
-async function initApp() {
-    document.getElementById('start-overlay').style.display = 'none';
-    startCamera("environment");
+isDragging=true
+overlay.style.borderColor="#2c7be5"
+
+offset.x=touch.clientX-overlay.offsetLeft
+offset.y=touch.clientY-overlay.offsetTop
+
+},500)
+
+},{passive:true})
+
+document.addEventListener("touchmove",(e)=>{
+
+if(!isDragging)return
+
+const touch=e.touches[0]
+
+overlay.style.left=(touch.clientX-offset.x)+"px"
+overlay.style.top=(touch.clientY-offset.y)+"px"
+
+},{passive:true})
+
+overlay.addEventListener("touchend",()=>{
+
+clearTimeout(pressTimer)
+
+if(!isDragging){
+isFlipped=!isFlipped
 }
 
-async function startCamera(mode) {
-    isImageMode = false;
-    videoElement.style.display = "block";
-    imageElement.style.display = "none";
-    if(cameraObj) await cameraObj.stop();
-    cameraObj = new Camera(videoElement, {
-        onFrame: async () => {
-            if(!isImageMode) {
-                canvasElement.width = videoElement.videoWidth;
-                canvasElement.height = videoElement.videoHeight;
-                drawAll();
-            }
-        },
-        width: 1280, height: 720, facingMode: mode
-    });
-    cameraObj.start();
-    resetManual();
+isDragging=false
+overlay.style.borderColor="rgba(255,255,255,0.2)"
+
+})
+
+function calcAngle(A,B,C){
+
+const AB={x:A.x-B.x,y:A.y-B.y}
+const CB={x:C.x-B.x,y:C.y-B.y}
+
+const dot=AB.x*CB.x+AB.y*CB.y
+
+const magAB=Math.sqrt(AB.x*AB.x+AB.y*AB.y)
+const magCB=Math.sqrt(CB.x*CB.x+CB.y*CB.y)
+
+let ang=Math.acos(dot/(magAB*magCB))*180/Math.PI
+
+return isFlipped?(180-ang):ang
+
 }
 
-function loadLocalImage(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    isImageMode = true;
-    if(cameraObj) cameraObj.stop();
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        imageElement.src = e.target.result;
-        imageElement.style.display = "block";
-        videoElement.style.display = "none";
-        imageElement.onload = () => {
-            canvasElement.width = imageElement.naturalWidth;
-            canvasElement.height = imageElement.naturalHeight;
-            resetManual();
-            drawAll();
-        };
-    };
-    reader.readAsDataURL(file);
+async function detect(){
+
+const poses=await detector.estimatePoses(video)
+
+canvas.width=video.videoWidth
+canvas.height=video.videoHeight
+
+ctx.drawImage(video,0,0)
+
+let html=""
+
+if(poses.length>0){
+
+const k=poses[0].keypoints
+
+const p=(name)=>k.find(x=>x.name===name && x.score>0.3)
+
+const targets=[
+
+{label:"右肩",pts:["right_elbow","right_shoulder","right_hip"]},
+{label:"左肩",pts:["left_elbow","left_shoulder","left_hip"]},
+
+{label:"右肘",pts:["right_shoulder","right_elbow","right_wrist"]},
+{label:"左肘",pts:["left_shoulder","left_elbow","left_wrist"]},
+
+{label:"右股関節",pts:["right_shoulder","right_hip","right_knee"]},
+{label:"左股関節",pts:["left_shoulder","left_hip","left_knee"]},
+
+{label:"右膝",pts:["right_hip","right_knee","right_ankle"]},
+{label:"左膝",pts:["left_hip","left_knee","left_ankle"]}
+
+]
+
+targets.forEach(t=>{
+
+const pts=t.pts.map(n=>p(n))
+
+if(!pts.includes(undefined)){
+
+const ang=calcAngle(pts[0],pts[1],pts[2])
+
+if(!maxAngles[t.label]||ang>maxAngles[t.label]){
+maxAngles[t.label]=ang
 }
 
-function takePhoto() {
-    flash.style.opacity = "1";
-    setTimeout(() => { flash.style.opacity = "0"; }, 100);
-    const tempCanvas = document.createElement('canvas');
-    const source = isImageMode ? imageElement : videoElement;
-    tempCanvas.width = canvasElement.width;
-    tempCanvas.height = canvasElement.height;
-    const ctx = tempCanvas.getContext('2d');
-    ctx.drawImage(source, 0, 0, tempCanvas.width, tempCanvas.height);
-    ctx.drawImage(canvasElement, 0, 0);
-    const link = document.createElement('a');
-    link.href = tempCanvas.toDataURL('image/jpeg', 0.8);
-    link.download = `ROM_${new Date().getTime()}.jpg`;
-    link.click();
+html+=`<div class="angle-item">${t.label}: <span class="main-val">${ang.toFixed(1)}°</span> <small>(MAX:${maxAngles[t.label].toFixed(1)})</small></div>`
+
+ctx.beginPath()
+ctx.moveTo(pts[0].x,pts[0].y)
+ctx.lineTo(pts[1].x,pts[1].y)
+ctx.lineTo(pts[2].x,pts[2].y)
+
+ctx.strokeStyle="#00ff00"
+ctx.lineWidth=6
+ctx.stroke()
+
 }
 
-canvasElement.addEventListener("click", (e) => {
-    const now = Date.now();
-    if (now - lastClickTime < 300) {
-        takePhoto();
-        lastClickTime = 0;
-        return;
-    }
-    lastClickTime = now;
+})
 
-    setTimeout(() => {
-        if (lastClickTime === 0) return;
-        const rect = canvasElement.getBoundingClientRect();
-        const scaleX = canvasElement.width / rect.width;
-        const scaleY = canvasElement.height / rect.height;
-        const x = (e.clientX - rect.left) * scaleX;
-        const y = (e.clientY - rect.top) * scaleY;
+anglesList.innerHTML=html||"関節検出中..."
 
-        if (manualPoints.length < 3) {
-            manualPoints.push({x, y});
-            drawAll();
-            updateAngle();
-        }
-        lastClickTime = 0;
-    }, 300);
-});
-
-function updateAngle() {
-    if (manualPoints.length === 3) {
-        const A = manualPoints[0], B = manualPoints[1], C = manualPoints[2];
-        const BA = { x: A.x - B.x, y: A.y - B.y };
-        const BC = { x: C.x - B.x, y: C.y - B.y };
-        const dot = BA.x * BC.x + BA.y * BC.y;
-        const magBA = Math.sqrt(BA.x * BA.x + BA.y * BA.y);
-        const magBC = Math.sqrt(BC.x * BC.x + BC.y * BC.y);
-        let angle = Math.acos(dot / (magBA * magBC)) * 180 / Math.PI;
-        if (isFlipped) angle = 180 - angle;
-        angleDisplay.innerText = angle.toFixed(1) + "°";
-        flipHint.style.display = "block";
-        guideMsg.innerText = "計測完了！";
-    } else {
-        angleDisplay.innerText = "--°";
-        flipHint.style.display = "none";
-        guideMsg.innerText = POINT_LABELS[manualPoints.length] + " をタップ";
-    }
 }
 
-function drawAll() {
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-    
-    // 延長基準線
-    if (manualPoints.length >= 2) {
-        const p1 = manualPoints[0], p2 = manualPoints[1];
-        const dx = p2.x - p1.x, dy = p2.y - p1.y;
-        canvasCtx.setLineDash([15, 15]);
-        canvasCtx.strokeStyle = "rgba(0, 255, 0, 0.5)";
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(p1.x, p1.y);
-        canvasCtx.lineTo(p2.x + dx * 2.5, p2.y + dy * 2.5);
-        canvasCtx.stroke();
-        canvasCtx.setLineDash([]);
-    }
+requestAnimationFrame(detect)
 
-    manualPoints.forEach((p, i) => {
-        canvasCtx.fillStyle = "#ff0000";
-        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y, 22, 0, Math.PI * 2); canvasCtx.fill();
-        canvasCtx.strokeStyle = "#ffffff"; canvasCtx.lineWidth = 5; canvasCtx.stroke();
-        
-        canvasCtx.font = "bold 34px sans-serif";
-        const label = POINT_LABELS[i].split("/")[0].replace(/[①②③]/, "");
-        canvasCtx.fillStyle = "rgba(0,0,0,0.5)";
-        canvasCtx.fillRect(p.x + 35, p.y - 45, 100, 50);
-        canvasCtx.fillStyle = "#ffffff";
-        canvasCtx.fillText(label, p.x + 40, p.y - 10);
-    });
-    
-    if(manualPoints.length >= 2) {
-        canvasCtx.strokeStyle = "#ff0000"; canvasCtx.lineWidth = 8;
-        canvasCtx.beginPath(); canvasCtx.moveTo(manualPoints[0].x, manualPoints[0].y);
-        canvasCtx.lineTo(manualPoints[1].x, manualPoints[1].y);
-        if(manualPoints.length === 3) canvasCtx.lineTo(manualPoints[2].x, manualPoints[2].y);
-        canvasCtx.stroke();
-    }
 }
 
-function resetManual() { 
-    manualPoints = []; 
-    isFlipped = false;
-    updateAngle(); 
-    drawAll(); 
+function takePhoto(){
+
+const link=document.createElement("a")
+
+link.download="Kotonoha_ROM_"+Date.now()+".png"
+
+link.href=canvas.toDataURL()
+
+link.click()
+
 }
+
+function resetMax(){
+
+maxAngles={}
+
+}
+
+async function init(){
+
+const stream=await navigator.mediaDevices.getUserMedia({
+
+video:{
+facingMode:"environment",
+width:1280,
+height:720
+}
+
+})
+
+video.srcObject=stream
+
+detector=await poseDetection.createDetector(
+
+poseDetection.SupportedModels.MoveNet,
+
+{
+modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+}
+
+)
+
+detect()
+
+}
+
+init()
+
 </script>
+
 </body>
 </html>
