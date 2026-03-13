@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ROM</title>
+<title>ことのはROM</title>
 
 <style>
 
@@ -14,7 +14,7 @@ overflow:hidden;
 font-family:sans-serif;
 }
 
-#video,#canvas{
+video,canvas{
 position:absolute;
 top:0;
 left:0;
@@ -29,33 +29,45 @@ top:10px;
 left:50%;
 transform:translateX(-50%);
 color:white;
-font-size:32px;
+font-size:28px;
 background:rgba(0,0,0,0.5);
-padding:10px 20px;
+padding:8px 18px;
 border-radius:20px;
 }
 
 .controls{
 position:absolute;
-bottom:10px;
+bottom:80px;
 left:50%;
 transform:translateX(-50%);
 display:flex;
 gap:10px;
-flex-wrap:wrap;
-justify-content:center;
 }
 
 button,label{
-padding:10px 15px;
+padding:10px 14px;
 border:none;
 border-radius:10px;
-font-size:14px;
 background:#333;
 color:white;
 }
 
-input{display:none;}
+#gallery{
+position:absolute;
+bottom:0;
+width:100%;
+height:70px;
+background:#111;
+display:flex;
+overflow-x:auto;
+gap:5px;
+padding:5px;
+}
+
+.thumb{
+height:60px;
+border-radius:6px;
+}
 
 </style>
 </head>
@@ -73,21 +85,23 @@ input{display:none;}
 
 <button onclick="switchCamera()">カメラ切替</button>
 
-<button onclick="startVoice()">音声ON</button>
+<button onclick="startVoice()">音声</button>
 
 <label>
 写真
-<input type="file" accept="image/*" onchange="loadImage(event)">
+<input type="file" accept="image/*" onchange="loadImage(event)" hidden>
 </label>
 
-<button onclick="undoPoint()">戻す</button>
+<button onclick="resetAction()">戻る</button>
 
 </div>
 
+<div id="gallery"></div>
+
 <script>
 
-const video=document.getElementById("video")
-const canvas=document.getElementById("canvas")
+const video=document.querySelector("video")
+const canvas=document.querySelector("canvas")
 const ctx=canvas.getContext("2d")
 
 let facing="environment"
@@ -97,6 +111,8 @@ let image=null
 let points=[]
 let dragging=null
 let currentAngle=null
+
+let photos=[]
 
 async function startCamera(){
 
@@ -124,23 +140,37 @@ startCamera()
 
 function takePhoto(){
 
-canvas.width=video.videoWidth
-canvas.height=video.videoHeight
+const temp=document.createElement("canvas")
+const tctx=temp.getContext("2d")
 
-ctx.drawImage(video,0,0)
+temp.width=video.videoWidth
+temp.height=video.videoHeight
 
-image=ctx.getImageData(0,0,canvas.width,canvas.height)
+tctx.drawImage(video,0,0)
 
-points=[]
-draw()
+let data=temp.toDataURL("image/jpeg",0.8)
+
+savePhoto(data)
 
 }
 
-function loadImage(e){
+function savePhoto(data){
 
-const file=e.target.files[0]
+photos.push(data)
 
-if(!file)return
+const img=document.createElement("img")
+img.src=data
+img.className="thumb"
+
+img.onclick=function(){
+loadPhoto(data)
+}
+
+document.getElementById("gallery").prepend(img)
+
+}
+
+function loadPhoto(data){
 
 const img=new Image()
 
@@ -154,7 +184,29 @@ ctx.drawImage(img,0,0)
 image=ctx.getImageData(0,0,canvas.width,canvas.height)
 
 points=[]
-draw()
+
+}
+
+img.src=data
+
+}
+
+function loadImage(e){
+
+const file=e.target.files[0]
+
+const img=new Image()
+
+img.onload=function(){
+
+canvas.width=img.width
+canvas.height=img.height
+
+ctx.drawImage(img,0,0)
+
+image=ctx.getImageData(0,0,canvas.width,canvas.height)
+
+points=[]
 
 }
 
@@ -178,38 +230,6 @@ points.push({x,y})
 draw()
 
 })
-
-canvas.addEventListener("mousedown",function(e){
-
-const rect=canvas.getBoundingClientRect()
-
-const x=(e.clientX-rect.left)*(canvas.width/rect.width)
-const y=(e.clientY-rect.top)*(canvas.height/rect.height)
-
-points.forEach((p,i)=>{
-
-if(Math.hypot(p.x-x,p.y-y)<20){
-dragging=i
-}
-
-})
-
-})
-
-canvas.addEventListener("mousemove",function(e){
-
-if(dragging===null)return
-
-const rect=canvas.getBoundingClientRect()
-
-points[dragging].x=(e.clientX-rect.left)*(canvas.width/rect.width)
-points[dragging].y=(e.clientY-rect.top)*(canvas.height/rect.height)
-
-draw()
-
-})
-
-canvas.addEventListener("mouseup",()=>dragging=null)
 
 function draw(){
 
@@ -237,8 +257,7 @@ const angle=calcAngle(points[0],points[1],points[2])
 
 currentAngle=angle
 
-document.getElementById("angle").innerText=
-"角度:"+angle.toFixed(1)+"°"
+document.getElementById("angle").innerText="角度:"+angle.toFixed(1)+"°"
 
 }
 
@@ -260,26 +279,22 @@ return angle*180/Math.PI
 
 }
 
-document.getElementById("angle").onclick=function(){
-
-if(currentAngle==null)return
-
-currentAngle=180-currentAngle
-
-this.innerText="角度:"+currentAngle.toFixed(1)+"°"
-
-}
-
-function undoPoint(){
+function resetAction(){
 
 if(points.length>0){
+
 points.pop()
 draw()
+
+return
+
 }
 
-if(points.length<3){
+image=null
+
+ctx.clearRect(0,0,canvas.width,canvas.height)
+
 document.getElementById("angle").innerText="角度:-"
-}
 
 }
 
@@ -299,38 +314,31 @@ clearTimeout(pressTimer)
 
 })
 
-let recognition
-
 function startVoice(){
 
 if(!("webkitSpeechRecognition" in window)){
-
-alert("音声認識未対応ブラウザ")
-
+alert("音声認識未対応")
 return
-
 }
 
-recognition=new webkitSpeechRecognition()
+const rec=new webkitSpeechRecognition()
 
-recognition.lang="ja-JP"
-recognition.continuous=true
+rec.lang="ja-JP"
+rec.continuous=true
 
-recognition.onresult=function(e){
+rec.onresult=function(e){
 
 const text=e.results[e.results.length-1][0].transcript
 
 if(text.includes("シャッター")||
-text.includes("撮影")||
-text.includes("写真")){
+text.includes("写真")||
+text.includes("撮影")){
 takePhoto()
 }
 
 }
 
-recognition.start()
-
-alert("音声シャッターON")
+rec.start()
 
 }
 
