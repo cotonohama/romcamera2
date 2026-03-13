@@ -3,61 +3,59 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ことのはROM</title>
+<title>ROM</title>
 
 <style>
 
 body{
 margin:0;
-background:#111;
-color:white;
+background:black;
+overflow:hidden;
 font-family:sans-serif;
-display:flex;
-flex-direction:column;
-height:100vh;
 }
 
-#video{
+#video,#canvas{
+position:absolute;
+top:0;
+left:0;
 width:100%;
-max-height:40vh;
-background:black;
+height:100%;
 object-fit:cover;
 }
 
-#canvas{
-flex:1;
-width:100%;
-touch-action:none;
-background:black;
-}
-
 #angle{
-text-align:center;
-font-size:28px;
-padding:10px;
+position:absolute;
+top:10px;
+left:50%;
+transform:translateX(-50%);
+color:white;
+font-size:32px;
+background:rgba(0,0,0,0.5);
+padding:10px 20px;
+border-radius:20px;
 }
 
 .controls{
+position:absolute;
+bottom:10px;
+left:50%;
+transform:translateX(-50%);
 display:flex;
+gap:10px;
 flex-wrap:wrap;
 justify-content:center;
-gap:10px;
-padding:10px;
-background:#222;
 }
 
 button,label{
-padding:12px 16px;
-font-size:16px;
+padding:10px 15px;
 border:none;
 border-radius:10px;
-background:#3a3a3a;
+font-size:14px;
+background:#333;
 color:white;
 }
 
-input[type=file]{
-display:none;
-}
+input{display:none;}
 
 </style>
 </head>
@@ -73,12 +71,16 @@ display:none;
 
 <button onclick="takePhoto()">撮影</button>
 
+<button onclick="switchCamera()">カメラ切替</button>
+
+<button onclick="startVoice()">音声ON</button>
+
 <label>
-写真読み込み
+写真
 <input type="file" accept="image/*" onchange="loadImage(event)">
 </label>
 
-<button onclick="resetPoints()">リセット</button>
+<button onclick="undoPoint()">戻す</button>
 
 </div>
 
@@ -88,18 +90,22 @@ const video=document.getElementById("video")
 const canvas=document.getElementById("canvas")
 const ctx=canvas.getContext("2d")
 
+let facing="environment"
+let stream=null
+
 let image=null
 let points=[]
 let dragging=null
 let currentAngle=null
-let lastVoiceTime=0
 
 async function startCamera(){
 
-const stream=await navigator.mediaDevices.getUserMedia({
-video:{
-facingMode:{ideal:"environment"}
+if(stream){
+stream.getTracks().forEach(t=>t.stop())
 }
+
+stream=await navigator.mediaDevices.getUserMedia({
+video:{facingMode:facing}
 })
 
 video.srcObject=stream
@@ -107,6 +113,14 @@ video.srcObject=stream
 }
 
 startCamera()
+
+function switchCamera(){
+
+facing=facing==="environment"?"user":"environment"
+
+startCamera()
+
+}
 
 function takePhoto(){
 
@@ -125,6 +139,7 @@ draw()
 function loadImage(e){
 
 const file=e.target.files[0]
+
 if(!file)return
 
 const img=new Image()
@@ -157,9 +172,7 @@ const x=(e.clientX-rect.left)*(canvas.width/rect.width)
 const y=(e.clientY-rect.top)*(canvas.height/rect.height)
 
 if(points.length<3){
-
 points.push({x,y})
-
 }
 
 draw()
@@ -176,9 +189,7 @@ const y=(e.clientY-rect.top)*(canvas.height/rect.height)
 points.forEach((p,i)=>{
 
 if(Math.hypot(p.x-x,p.y-y)<20){
-
 dragging=i
-
 }
 
 })
@@ -205,12 +216,10 @@ function draw(){
 if(image)ctx.putImageData(image,0,0)
 
 points.forEach(p=>{
-
 ctx.beginPath()
 ctx.arc(p.x,p.y,8,0,Math.PI*2)
 ctx.fillStyle="yellow"
 ctx.fill()
-
 })
 
 if(points.length===3){
@@ -257,66 +266,75 @@ if(currentAngle==null)return
 
 currentAngle=180-currentAngle
 
-document.getElementById("angle").innerText=
-"角度:"+currentAngle.toFixed(1)+"°"
+this.innerText="角度:"+currentAngle.toFixed(1)+"°"
 
 }
 
-function resetPoints(){
+function undoPoint(){
 
-points=[]
+if(points.length>0){
+points.pop()
 draw()
+}
 
+if(points.length<3){
 document.getElementById("angle").innerText="角度:-"
+}
 
 }
 
-let lastTap=0
+let pressTimer
 
-canvas.addEventListener("touchend",function(){
+canvas.addEventListener("touchstart",function(){
 
-let now=Date.now()
-
-if(now-lastTap<300){
-
+pressTimer=setTimeout(()=>{
 takePhoto()
-
-}
-
-lastTap=now
+},600)
 
 })
 
-if("webkitSpeechRecognition" in window){
+canvas.addEventListener("touchend",function(){
 
-const rec=new webkitSpeechRecognition()
+clearTimeout(pressTimer)
 
-rec.lang="ja-JP"
-rec.continuous=true
+})
 
-rec.onresult=function(e){
+let recognition
+
+function startVoice(){
+
+if(!("webkitSpeechRecognition" in window)){
+
+alert("音声認識未対応ブラウザ")
+
+return
+
+}
+
+recognition=new webkitSpeechRecognition()
+
+recognition.lang="ja-JP"
+recognition.continuous=true
+
+recognition.onresult=function(e){
 
 const text=e.results[e.results.length-1][0].transcript
 
-if(
-(text.includes("シャッター")||
-text.includes("写真")||
-text.includes("撮影"))
-&& Date.now()-lastVoiceTime>1000
-){
-
-lastVoiceTime=Date.now()
-
+if(text.includes("シャッター")||
+text.includes("撮影")||
+text.includes("写真")){
 takePhoto()
-
 }
 
 }
 
-rec.start()
+recognition.start()
+
+alert("音声シャッターON")
 
 }
 
 </script>
+
 </body>
 </html>
