@@ -1,315 +1,230 @@
 <!DOCTYPE html>
-
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-
-<title>ことのは ROM v10</title>
-
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ことのは ROM</title>
 
 <style>
-
 body{
 margin:0;
+font-family:sans-serif;
 background:#111;
 color:white;
 text-align:center;
-font-family:sans-serif;
-overflow:hidden;
+}
+
+#video{
+width:100%;
+max-height:50vh;
+background:black;
+}
+
+#canvas{
+width:100%;
 touch-action:none;
-}
-
-#container{
-position:relative;
-width:100vw;
-height:75vh;
-background:#000;
-}
-
-video,canvas{
-position:absolute;
-left:50%;
-top:50%;
-transform:translate(-50%,-50%);
-max-width:100%;
-max-height:100%;
-}
-
-#overlay{
-position:absolute;
-top:10px;
-left:10px;
-background:rgba(0,0,0,0.7);
-padding:12px;
-border-radius:12px;
-text-align:left;
-z-index:100;
-border:1px solid rgba(255,255,255,0.2);
-min-width:160px;
-cursor:move;
-}
-
-.angle-item{
-font-size:18px;
-margin-bottom:4px;
-font-weight:bold;
-}
-
-.main-val{
-color:#00ff00;
-}
-
-.hint{
-font-size:9px;
-color:#aaa;
-margin-top:5px;
-text-align:center;
 }
 
 .controls{
 padding:10px;
-background:#222;
-display:flex;
-justify-content:center;
-gap:10px;
-flex-wrap:wrap;
 }
 
 button{
+padding:12px;
+margin:5px;
 font-size:16px;
-padding:12px 18px;
-border-radius:8px;
+border-radius:10px;
 border:none;
-font-weight:bold;
-cursor:pointer;
 }
 
-.btn-save{
-background:#2c7be5;
-color:white;
+#angle{
+font-size:32px;
+margin:10px;
 }
-
-.btn-sub{
-background:#444;
-color:white;
-}
-
 </style>
-
 </head>
 
 <body>
 
-<div id="container">
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
 
-<video id="video" autoplay playsinline muted></video> <canvas id="canvas"></canvas>
-
-<div id="overlay">
-<div id="angles-list"></div>
-<div class="hint">タップ:角度反転 / 長押し:移動</div>
-</div>
-
-</div>
+<div id="angle">角度: -</div>
 
 <div class="controls">
-
-<button class="btn-save" onclick="takePhoto()">📸 保存</button> <button class="btn-sub" onclick="resetMax()">MAXリセット</button>
-
+<button onclick="takePhoto()">撮影</button>
+<input type="file" accept="image/*" onchange="loadImage(event)">
+<button onclick="resetPoints()">リセット</button>
 </div>
 
 <script>
 
-const video=document.getElementById("video")
-const canvas=document.getElementById("canvas")
-const ctx=canvas.getContext("2d")
-const anglesList=document.getElementById("angles-list")
-const overlay=document.getElementById("overlay")
+const video=document.getElementById("video");
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
 
-let detector
-let isFlipped=false
-let maxAngles={}
+let image=null;
+let points=[];
+let dragging=null;
 
-let pressTimer
-let isDragging=false
-let offset={x:0,y:0}
-
-overlay.addEventListener("touchstart",(e)=>{
-
-const touch=e.touches[0]
-
-pressTimer=setTimeout(()=>{
-
-isDragging=true
-overlay.style.borderColor="#2c7be5"
-
-offset.x=touch.clientX-overlay.offsetLeft
-offset.y=touch.clientY-overlay.offsetTop
-
-},500)
-
-},{passive:true})
-
-document.addEventListener("touchmove",(e)=>{
-
-if(!isDragging)return
-
-const touch=e.touches[0]
-
-overlay.style.left=(touch.clientX-offset.x)+"px"
-overlay.style.top=(touch.clientY-offset.y)+"px"
-
-},{passive:true})
-
-overlay.addEventListener("touchend",()=>{
-
-clearTimeout(pressTimer)
-
-if(!isDragging){
-isFlipped=!isFlipped
+async function startCamera(){
+const stream=await navigator.mediaDevices.getUserMedia({video:true});
+video.srcObject=stream;
 }
-
-isDragging=false
-overlay.style.borderColor="rgba(255,255,255,0.2)"
-
-})
-
-function calcAngle(A,B,C){
-
-const AB={x:A.x-B.x,y:A.y-B.y}
-const CB={x:C.x-B.x,y:C.y-B.y}
-
-const dot=AB.x*CB.x+AB.y*CB.y
-
-const magAB=Math.sqrt(AB.x*AB.x+AB.y*AB.y)
-const magCB=Math.sqrt(CB.x*CB.x+CB.y*CB.y)
-
-let ang=Math.acos(dot/(magAB*magCB))*180/Math.PI
-
-return isFlipped?(180-ang):ang
-
-}
-
-async function detect(){
-
-const poses=await detector.estimatePoses(video)
-
-canvas.width=video.videoWidth
-canvas.height=video.videoHeight
-
-ctx.drawImage(video,0,0)
-
-let html=""
-
-if(poses.length>0){
-
-const k=poses[0].keypoints
-
-const p=(name)=>k.find(x=>x.name===name && x.score>0.3)
-
-const targets=[
-
-{label:"右肩",pts:["right_elbow","right_shoulder","right_hip"]},
-{label:"左肩",pts:["left_elbow","left_shoulder","left_hip"]},
-
-{label:"右肘",pts:["right_shoulder","right_elbow","right_wrist"]},
-{label:"左肘",pts:["left_shoulder","left_elbow","left_wrist"]},
-
-{label:"右股関節",pts:["right_shoulder","right_hip","right_knee"]},
-{label:"左股関節",pts:["left_shoulder","left_hip","left_knee"]},
-
-{label:"右膝",pts:["right_hip","right_knee","right_ankle"]},
-{label:"左膝",pts:["left_hip","left_knee","left_ankle"]}
-
-]
-
-targets.forEach(t=>{
-
-const pts=t.pts.map(n=>p(n))
-
-if(!pts.includes(undefined)){
-
-const ang=calcAngle(pts[0],pts[1],pts[2])
-
-if(!maxAngles[t.label]||ang>maxAngles[t.label]){
-maxAngles[t.label]=ang
-}
-
-html+=`<div class="angle-item">${t.label}: <span class="main-val">${ang.toFixed(1)}°</span> <small>(MAX:${maxAngles[t.label].toFixed(1)})</small></div>`
-
-ctx.beginPath()
-ctx.moveTo(pts[0].x,pts[0].y)
-ctx.lineTo(pts[1].x,pts[1].y)
-ctx.lineTo(pts[2].x,pts[2].y)
-
-ctx.strokeStyle="#00ff00"
-ctx.lineWidth=6
-ctx.stroke()
-
-}
-
-})
-
-anglesList.innerHTML=html||"関節検出中..."
-
-}
-
-requestAnimationFrame(detect)
-
-}
+startCamera();
 
 function takePhoto(){
+canvas.width=video.videoWidth;
+canvas.height=video.videoHeight;
+ctx.drawImage(video,0,0);
+image=ctx.getImageData(0,0,canvas.width,canvas.height);
+points=[];
+draw();
+}
 
-const link=document.createElement("a")
+function loadImage(e){
+const img=new Image();
+img.onload=()=>{
+canvas.width=img.width;
+canvas.height=img.height;
+ctx.drawImage(img,0,0);
+image=ctx.getImageData(0,0,canvas.width,canvas.height);
+points=[];
+draw();
+};
+img.src=URL.createObjectURL(e.target.files[0]);
+}
 
-link.download="Kotonoha_ROM_"+Date.now()+".png"
+canvas.addEventListener("click",e=>{
+const rect=canvas.getBoundingClientRect();
+const x=(e.clientX-rect.left)*(canvas.width/rect.width);
+const y=(e.clientY-rect.top)*(canvas.height/rect.height);
 
-link.href=canvas.toDataURL()
+if(points.length<3){
+points.push({x,y});
+draw();
+}
+});
 
-link.click()
+canvas.addEventListener("mousedown",e=>{
+const rect=canvas.getBoundingClientRect();
+const x=(e.clientX-rect.left)*(canvas.width/rect.width);
+const y=(e.clientY-rect.top)*(canvas.height/rect.height);
+
+points.forEach((p,i)=>{
+if(Math.hypot(p.x-x,p.y-y)<20){
+dragging=i;
+}
+});
+});
+
+canvas.addEventListener("mousemove",e=>{
+if(dragging===null)return;
+
+const rect=canvas.getBoundingClientRect();
+points[dragging].x=(e.clientX-rect.left)*(canvas.width/rect.width);
+points[dragging].y=(e.clientY-rect.top)*(canvas.height/rect.height);
+
+draw();
+});
+
+canvas.addEventListener("mouseup",()=>dragging=null);
+
+function draw(){
+
+if(image)ctx.putImageData(image,0,0);
+
+ctx.lineWidth=4;
+ctx.strokeStyle="red";
+
+points.forEach(p=>{
+ctx.beginPath();
+ctx.arc(p.x,p.y,8,0,Math.PI*2);
+ctx.fillStyle="yellow";
+ctx.fill();
+});
+
+if(points.length==3){
+
+ctx.beginPath();
+ctx.moveTo(points[0].x,points[0].y);
+ctx.lineTo(points[1].x,points[1].y);
+ctx.lineTo(points[2].x,points[2].y);
+ctx.stroke();
+
+const angle=calcAngle(points[0],points[1],points[2]);
+currentAngle=angle;
+
+document.getElementById("angle").innerText="角度: "+angle.toFixed(1)+"°";
 
 }
 
-function resetMax(){
+}
 
-maxAngles={}
+let currentAngle=null;
+
+function calcAngle(a,b,c){
+
+const ab=[a.x-b.x,a.y-b.y];
+const cb=[c.x-b.x,c.y-b.y];
+
+const dot=ab[0]*cb[0]+ab[1]*cb[1];
+
+const mag1=Math.hypot(ab[0],ab[1]);
+const mag2=Math.hypot(cb[0],cb[1]);
+
+let angle=Math.acos(dot/(mag1*mag2));
+
+return angle*180/Math.PI;
 
 }
 
-async function init(){
+document.getElementById("angle").onclick=()=>{
+if(currentAngle==null)return;
 
-const stream=await navigator.mediaDevices.getUserMedia({
+currentAngle=180-currentAngle;
+document.getElementById("angle").innerText="角度: "+currentAngle.toFixed(1)+"°";
+};
 
-video:{
-facingMode:"environment",
-width:1280,
-height:720
+function resetPoints(){
+points=[];
+draw();
+document.getElementById("angle").innerText="角度: -";
 }
 
-})
+let lastTap=0;
 
-video.srcObject=stream
+canvas.addEventListener("touchend",function(e){
+let currentTime=new Date().getTime();
+let tapLength=currentTime-lastTap;
 
-detector=await poseDetection.createDetector(
-
-poseDetection.SupportedModels.MoveNet,
-
-{
-modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+if(tapLength<300 && tapLength>0){
+takePhoto();
 }
 
-)
+lastTap=currentTime;
+});
 
-detect()
+if('webkitSpeechRecognition' in window){
 
+const recognition=new webkitSpeechRecognition();
+recognition.lang="ja-JP";
+recognition.continuous=true;
+
+recognition.onresult=function(event){
+
+const text=event.results[event.results.length-1][0].transcript;
+
+if(text.includes("シャッター")||text.includes("撮影")||text.includes("写真")){
+takePhoto();
 }
 
-init()
+};
+
+recognition.start();
+
+}
 
 </script>
-
 </body>
 </html>
